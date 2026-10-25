@@ -228,19 +228,96 @@ Can't make a fit card: no outfit suggestion was provided.
      `python run_eval.py --label before` runs everything and writes the table
      into results/. Paste it here and fill in the verdicts. -->
 
+`python run_eval.py --label before` → [results/run_2026-10-25_1536_before.md](results/run_2026-10-25_1536_before.md)
+(raw sessions in the matching `.json`). Cache off, temperature 0.9, 50 real model calls.
+
+**How the run is set up** ([scenarios.py](scenarios.py)): one scenario per criterion, five tries each.
+Criteria 4 and 5 say "5 different queries", so I added a `queries` list to a scenario —
+try *i* runs the *i*-th query — and a two-line change in `run_eval.py` to use it.
+Criteria 1, 2 and 3 run the same query five times.
+
+**How each try was marked** ([score_run.py](score_run.py), `check()`): I wrote each criterion
+down as a check rather than eyeballing 25 runs.
+1 — no `error`, a non-empty outfit, and a fit card that isn't the empty-outfit message.
+2 — `error` is set, `outfit_suggestion` and `fit_card` are both still `None`, and the message says *Try / raise / drop / Add*.
+3 — `selected_item.id == search_results[0].id`, and the item's platform appears in the fit card.
+4 — the card splits into 2–4 sentences (on `. ! ?`, pieces of 3+ words), and contains `$<price>`.
+5 — the ceiling is read from what the *user typed* (not from my parser, so a parser bug can't mark itself correct), and no result is over it.
+
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. Selected item is search_results[0] and its platform reaches the fit card | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Fit card is 2–4 sentences and contains the price with a $ | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Every search result is within the stated price ceiling | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
-**Real output from one try**, pasted as text, naming the file and function
-that produced it:
+**Real output, one try per criterion.** All produced by `agent.py::run_agent`, run by
+`run_eval.py::run_once`; the tool named in each block is the one that wrote the text.
+
+*Criterion 1, try 1* — `vintage graphic tee under $30`. Trace from `agent.py::_run_step`, card from `tools.py::create_fit_card`:
 
 ```
+[1] parse_query
+      in:  'vintage graphic tee under $30'
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+      →    branch: results — continuing
+[3] select_item
+      in:  search_results[0]
+      out: Y2K Baby Tee — Butterfly Print ($18.0, depop)
+[4] suggest_outfit
+      in:  new_item=lst_002, wardrobe=10 items
+      out: **Outfit 1: Casual Y2K Streetwear** Pair the Y2K Baby Tee — Butterfly Print with your baggy straight-leg jeans…
+[5] create_fit_card
+      in:  outfit=<647 chars>, new_item=lst_002
+      out: Found the ultimate Y2K butterfly tee and honestly might keep this one for myself, but it’s currently live on d…
 
+fit_card: Found the ultimate Y2K butterfly tee and honestly might keep this one for myself, but it’s currently live on depop for $18. Style it casual with baggy denim and an unzipped hoodie, or tuck it into khaki trousers with combat boots for that perfect sweet-meets-edgy vintage vibe. Grab it before I change my mind!
+```
+
+*Criterion 2, try 1* — `designer ballgown size XXS under $5`. Message from `agent.py::no_results_message`:
+
+```
+[1] parse_query
+      in:  'designer ballgown size XXS under $5'
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty — stopping before suggest_outfit
+
+error:             No listing mentions 'designer ballgown', even with size and price ignored. Try broader words — a category like 'dress', 'jacket' or 'tee', or a style like 'vintage' or 'y2k'.
+outfit_suggestion: None
+fit_card:          None
+```
+
+*Criterion 3, try 1* — `90s track jacket in size M`. Session fields set by `agent.py::_run_step`, card from `tools.py::create_fit_card`:
+
+```
+selected_item.id:     lst_004
+search_results[0].id: lst_004
+platform:             poshmark
+fit_card: Obsessed with this vintage 90s track jacket and how effortlessly cool it looks dressed up with khakis or kept casual with baggy denim. I’ve got it listed on Poshmark for just $45, and it’s the ultimate sporty-chic layering piece for your wardrobe. Grab it before it’s gone!
+```
+
+*Criterion 4, try 4* — `platform sneakers size 8`, lst_019 at $48. Card from `tools.py::create_fit_card`:
+
+```
+Just scored these chunky platform sneakers on Poshmark for only $48 and I am obsessed! They are giving the ultimate 90s skater vibe paired with my baggy jeans and vintage denim jacket, but they look just as good with wide-leg trousers for an effortless Y2K casual-cool fit. Run, don't walk, to check out my Poshmark closet before I change my mind and keep them both!
+```
+
+*Criterion 5, try 4* — `y2k top for less than $20`. Parsed by `agent.py::parse_query`, results from `search_listings` over MCP (`mcp_server.py` → `tools.py::search_listings`):
+
+```
+parsed: {'description': 'y2k top for', 'size': None, 'max_price': 20.0}
+search_results:
+  lst_017  Mesh Long-Sleeve Top — Black       15.0
+  lst_002  Y2K Baby Tee — Butterfly Print     18.0
+  lst_026  Biker Shorts — Black, Shiny        14.0
+  lst_035  Low-Top Canvas Sneakers — Off-White 20.0
 ```
 
 ---
