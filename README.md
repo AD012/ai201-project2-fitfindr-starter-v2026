@@ -100,7 +100,9 @@
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** Regex, in `agent.py::parse_query` — no model call. `under $30` / `below 30` / `$30` → `max_price=30.0`; `size M` / `in size W30` → `size="M"`; a bare number like `size 8` becomes `"US 8"`, because that's how shoe sizes are written in the data. Filler like "looking for" is dropped, and whatever is left is the description. Either filter is `None` when the query doesn't state it.
+
+**The empty-search message:** `agent.py::no_results_message` re-runs the search with the price limit dropped, then with the size dropped, and says which change would find something (e.g. *"drop the size — matches come in US 7, US 8, US 9"*). If neither helps, it says no listing mentions those words and suggests broader ones.
 
 **What moves through the session:** `query` → `parsed` (description, size, max_price) → `search_results` → `selected_item` → `outfit_suggestion` → `fit_card`. On an empty search, `error` is set and the last three stay `None`.
 
@@ -116,8 +118,33 @@
 **One full query**
 
 ```
-$ python app.py ask '...'
+$ python app.py ask 'vintage graphic tee under $30'
 
+  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop
+
+  Outfit:   **Outfit 1: Casual Y2K Contrast**
+Pair the Y2K Baby Tee — Butterfly Print with your baggy straight-leg jeans, dark wash. Layer the black cropped zip hoodie on top, leaving it unzipped to show off the print. Finish with the chunky white sneakers and your black crossbody bag for an effortless, everyday throwback look.
+
+**Outfit 2: Edgy Vintage Mix**
+Tuck the Y2K Baby Tee — Butterfly Print into your wide-leg khaki trousers, cinched with the brown leather belt. Throw on the vintage black denim jacket and lace up your black combat boots to give the sweet butterfly graphic a cool, grunge-inspired edge.
+
+  Fit card: Obsessed with this Y2K butterfly baby tee that just dropped in the shop for $18 on Depop! I’ve been living for baby tees lately, and this graphic is just too good. Whether you're leaning into a chill, everyday throwback vibe or styling it with some grunge edge, it's such an easy piece to throw on.
+```
+
+**The empty path** — stops after search; `session["fit_card"]` stays `None`
+
+```
+$ python app.py ask 'designer ballgown size XXS under $5'
+
+  No listing mentions 'designer ballgown', even with size and price ignored. Try broader words — a category like 'dress', 'jacket' or 'tee', or a style like 'vintage' or 'y2k'.
+
+0 model calls this session
+```
+
+**State check** — the item search picked is the one `suggest_outfit` received
+
+```
+selected id: lst_002 | search[0] id: lst_002 | reached suggest_outfit: lst_002 | same object: True
 ```
 
 **The three tools, tested one at a time**
