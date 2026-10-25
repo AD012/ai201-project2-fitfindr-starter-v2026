@@ -67,23 +67,33 @@ from tools import search_listings as _search_listings_impl  # noqa: F401 — you
 mcp = FastMCP("fitfindr", log_level="WARNING")
 
 
-# ── TODO: uncomment and fill this in ──────────────────────────────────────────
-#
-# @mcp.tool()
-# def search_listings(
-#     description: str,
-#     size: str | None = None,
-#     max_price: float | None = None,
-# ) -> list[dict]:
-#     """
-#     <-- YOUR DESCRIPTION GOES HERE.
-#
-#         One or two sentences. What does this tool do, what does it need, and
-#         what does it give back when it finds nothing? Written for a reader
-#         who cannot see the code.
-#     """
-#     return _search_listings_impl(description, size, max_price)
-#
+# ── search_listings, registered ───────────────────────────────────────────────
+
+@mcp.tool()
+def search_listings(
+    description: str,
+    size: str | None = None,
+    max_price: float | None = None,
+) -> list[dict]:
+    """
+    Search 40 secondhand clothing listings (Depop, Poshmark, thredUp) by keyword.
+
+    Inputs: `description` is free text such as "vintage graphic tee"; it matches
+    on shared words across title, description, category, style tags, colours
+    and brand. `size` is an optional size string, matched case-insensitively
+    against each part of the listing's size split on "/" — "M" matches "S/M"
+    but "L" does not match "XL", and shoe sizes are written "US 8". `max_price`
+    is an optional inclusive ceiling in US dollars (30 keeps a $30.00 item).
+    Omit size or max_price to skip that filter.
+
+    Returns up to 10 listing objects, best keyword match first, each with id,
+    title, description, category, style_tags (list), size, condition,
+    price (number, USD), colors (list), brand (string or null — usually null),
+    and platform. When nothing matches, returns an empty list — never null and
+    never an error.
+    """
+    return _search_listings_impl(description, size, max_price)
+
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # Two notes on the block above.

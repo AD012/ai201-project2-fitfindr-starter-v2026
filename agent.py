@@ -17,8 +17,18 @@ import re
 
 import config  # noqa: F401 — MAX_ITERATIONS is read through trace.check_iterations
 import trace
-from tools import search_listings, suggest_outfit, create_fit_card
+from mcp_client import call_tool
+from tools import suggest_outfit, create_fit_card
 from generate import ModelUnavailable
+
+
+def search_listings(description: str, size: str | None = None, max_price: float | None = None) -> list[dict]:
+    """search_listings, reached over MCP (mcp_server.py) instead of imported from tools.py."""
+    return call_tool("search_listings", {
+        "description": description,
+        "size": size,
+        "max_price": max_price,
+    })
 
 
 # ── session state ─────────────────────────────────────────────────────────────
