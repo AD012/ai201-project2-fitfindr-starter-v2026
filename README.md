@@ -44,6 +44,8 @@
 
 <!-- Three or four sentences: what a user asks for, and what they get back. -->
 
+FitFindr is a thrift-shopping agent. You ask for something in plain language — *"vintage graphic tee under $30"* or *"platform sneakers size 8"* — and it searches 40 secondhand listings from Depop, Poshmark and thredUp for the best match within your size and price. It then suggests one or two outfits built around that item using pieces from your wardrobe (or general styling advice if your wardrobe is empty), and writes a short, postable caption — a "fit card" — mentioning the item, its price and where it's listed. If nothing matches, it stops before the styling steps and tells you which filter to loosen or which words to try instead.
+
 
 
 ---
@@ -96,7 +98,7 @@
      The grader checks your code against what you claim here, so the file and
      function have to be real. -->
 
-**Branch rule:** If `search_listings` returns `[]`, store a message in `session["error"]` that names the filters used (description, size, max price) and suggests loosening one, then stop — `suggest_outfit` and `create_fit_card` are never called and `session["fit_card"]` stays `None`. Otherwise, store `results[0]` in `session["selected_item"]`, call `suggest_outfit` with it, then `create_fit_card`.
+**Branch rule:** If `search_listings` returns `[]`, store a message in `session["error"]` that names the filters used (description, size, max price) and says which one to loosen — or, if loosening wouldn't help, which broader words to try — then stop — `suggest_outfit` and `create_fit_card` are never called and `session["fit_card"]` stays `None`. Otherwise, store `results[0]` in `session["selected_item"]`, call `suggest_outfit` with it, then `create_fit_card`.
 
 **Where it lives:** `agent.py::run_agent`
 
@@ -198,15 +200,15 @@ Can't make a fit card: no outfit suggestion was provided.
 
 **Moment 1**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked Claude to look over my Tool Inventory for Milestone 2 and tell me whether someone else could build the tools from it.
+- *What came back:* It said my `search_listings` return line — "list of matching dictionary" — was exactly the "returns a list" the template says earns nothing, and that my `create_fit_card` empty case ("a descriptive message string") couldn't be checked by code. It also listed every size string in the data and asked me to decide what counts as a size match.
+- *What I changed:* I rewrote the return line to name all 11 fields, the 10-result cap, the ranking and the size rule; fixed the empty fit-card case to one exact string the loop can recognise; and decided to keep my exact-part size rule (`"M"` matches `S/M`, `"L"` does not match `XL`).
 
 **Moment 2**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I had Claude wire the loop and parse the query with a regex, then run every example query from `python app.py examples` through it.
+- *What came back:* `'platform sneakers size 8'` returned nothing. The parser handed the tool `"8"`, my size rule doesn't match `"8"` to `"US 8"`, and the empty-search message contradicted itself: "drop the size — matches come in US 7, US 8, US 9".
+- *What I changed:* I kept the tool's size rule as specified and fixed it in the parser instead — a bare number after "size" becomes `"US 8"`, because that's how the data writes shoe sizes. Re-ran it: `size 8`, `size us8` and `size 8.5` each now find their match.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
