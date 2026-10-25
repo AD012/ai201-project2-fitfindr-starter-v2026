@@ -28,6 +28,11 @@ tool calls and returns a fit card — in at least 4 of 5 tries.
 <!-- Why 4 of 5 and not 5 of 5? Something about your search, probably —
      "my search is a plain keyword match and some phrasings will miss" is a
      real answer. -->
+My search is a plain keyword match and my size rule is exact — "8" doesn't
+match "US 8" — so a reasonable phrasing of a query that *should* match can
+still come back empty. Two of the three calls also go to a rate-limited model,
+so one try in five failing on something outside my code is plausible; two in
+five would mean something is actually wrong.
 
 ---
 
@@ -39,6 +44,10 @@ Given a query that matches no listings, the agent stops before calling
 **Why this target:**
 <!-- Why is 5 of 5 reasonable here when criterion 1 isn't? What's different
      about this path? -->
+This path never touches the model. Query parsing is a regex and the search is
+plain Python over a fixed file, so the same query gives the same empty list
+every time, and the branch on `[]` either works or it doesn't. Anything less
+than 5 of 5 would mean the branch is broken, not unlucky.
 
 ---
 
@@ -54,10 +63,17 @@ Given a query that matches no listings, the agent stops before calling
      compares session["selected_item"] against what actually reached
      suggest_outfit is the shape you're after. -->
 
-
+Given a query that matches at least one listing, `session["selected_item"]["id"]`
+equals `session["search_results"][0]["id"]`, and the fit card in
+`session["fit_card"]` names that same item's platform — in 5 of 5 tries.
 
 **Why this target:**
-
+The loop reads `selected_item` out of the session and passes that one dict to
+both `suggest_outfit` and `create_fit_card`, with no model step in between, so
+there's no randomness that could swap the item. The platform check is there
+because the id comparison alone only proves the session is consistent with
+itself — the platform showing up in the card is what proves the item actually
+reached the last tool. If this misses even once, the state is wrong.
 
 
 ---
@@ -75,10 +91,16 @@ Given a query that matches no listings, the agent stops before calling
      sentence? A card longer than a caption anyone would post? Any of those can
      be turned into a number. -->
 
-
+For 5 different matching queries, each fit card is 2 to 4 sentences long and
+contains the selected item's price written with a dollar sign (e.g. `$24`) —
+in at least 4 of 5 tries.
 
 **Why this target:**
-
+The prompt asks for 2–4 sentences and the price once, but at temperature 0.9
+the model doesn't always follow length or formatting instructions — it might
+write "24.0", or drop the price for a vibe-only caption. One slip in five is
+the model being a model; two would mean my prompt isn't clear enough. I'm not
+requiring identical wording because varied wording is the point of the card.
 
 
 ---
@@ -92,10 +114,15 @@ Given a query that matches no listings, the agent stops before calling
      search respects a price ceiling — anything, as long as it names a number
      or an observable outcome. -->
 
-
+**The price ceiling is respected.** For 5 queries that state a price
+("under $30", "under $50", …), every listing in `session["search_results"]` has
+a `price` less than or equal to the stated number — 5 of 5 tries.
 
 **Why this target:**
-
+A thrift search that shows you a $45 jacket after you said "under $30" is the
+failure I'd be most annoyed by as a user. Both the regex that pulls the number
+out of the query and the `<=` filter are deterministic, so there's no reason
+for this to ever fail once it's right — 5 of 5 is the only honest target.
 
 
 ---
