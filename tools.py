@@ -257,7 +257,11 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     price = new_item.get("price")
     price_text = f"${price:g}" if isinstance(price, (int, float)) else "an unlisted price"
     prompt = (
-        f"Write a caption for a social media post about this thrift find.\n\n"
+        f"Write a caption for a social media post about this thrift find. The "
+        f"person posting is a shopper who just found this secondhand piece on "
+        f"{new_item.get('platform')} and is showing off how they'd style it. "
+        f"They are not the seller: it isn't their listing or their shop, and "
+        f"they aren't selling it to anyone.\n\n"
         f"Item: {new_item.get('title')}\n"
         f"Price: {price_text}\n"
         f"Platform: {new_item.get('platform')}\n"

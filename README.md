@@ -528,24 +528,72 @@ full. -->
 
      `python run_eval.py --label after` -->
 
-**What I changed:**
+**What I changed:** one prompt — the opening of the prompt in `tools.py::create_fit_card`.
+Nothing else: not the price, length or platform rules, the temperature, or any other tool.
 
-**Which failure it was meant to fix:**
+```diff
+-        f"Write a caption for a social media post about this thrift find.\n\n"
++        f"Write a caption for a social media post about this thrift find. The "
++        f"person posting is a shopper who just found this secondhand piece on "
++        f"{new_item.get('platform')} and is showing off how they'd style it. "
++        f"They are not the seller: it isn't their listing or their shop, and "
++        f"they aren't selling it to anyone.\n\n"
+```
+
+**Which failure it was meant to fix:** criterion 4 (revised), 1/5 before. The diagnosis
+said the prompt never says who is posting, so the model defaults to a seller
+promoting their own listing. The fix states who's posting. I deliberately didn't
+paste my `SELLER_VOICE` phrase list into the prompt ("don't say 'grab it'…"),
+because that would teach the model to pass my check rather than fix what it
+believed about the poster.
 
 ### Run Log — After
 
+`python run_eval.py --label after` → [results/run_2026-10-25_1551_after.md](results/run_2026-10-25_1551_after.md),
+scored with `python score_run.py results/run_2026-10-25_1551_after.json`. Same scenarios, same
+five tries, cache off, 50 real model calls.
+
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. Selected item is search_results[0] and its platform reaches the fit card | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Fit card is 2–4 sentences and contains the price with a $ | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4 (revised). …and in the shopper's voice | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Every search result is within the stated price ceiling | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
-**Did it help, and how do I know:**
+**Before and after, side by side**
 
-<!-- If it made things worse, say that. Honestly reported, that earns full
-     credit and is more interesting than one that worked. -->
+| Criterion | Before | After |
+|---|---|---|
+| 1 | MET (5/5) | MET (5/5) |
+| 2 | MET (5/5) | MET (5/5) |
+| 3 | MET (5/5) | MET (5/5) |
+| 4 (original) | MET (5/5) | MET (5/5) |
+| **4 (revised)** | **MISSED (1/5)** | **MET (5/5)** |
+| 5 | MET (5/5) | MET (5/5) |
+| *Seller-voice cards, all 25 in the run* | *21 of 25* | *0 of 25* |
+
+Same item, before and after (criterion 4, try 4, `platform sneakers size 8`, from `tools.py::create_fit_card`):
+
+```
+BEFORE: Just scored these chunky platform sneakers on Poshmark for only $48 and I am obsessed! They are giving the ultimate 90s skater vibe paired with my baggy jeans and vintage denim jacket, but they look just as good with wide-leg trousers for an effortless Y2K casual-cool fit. Run, don't walk, to check out my Poshmark closet before I change my mind and keep them both!
+
+AFTER:  Scored these chunky white platform sneakers on Poshmark for just $48, and I am already obsessed with them. I put together an off-duty streetwear look with baggy jeans and a vintage denim jacket, plus a Y2K sporty vibe using wide-leg khakis and an oversized crewneck. They add the absolute best retro-meets-modern lift to every outfit!
+```
+
+**Did it help, and how do I know:** Yes. The revised criterion 4 went from 1/5 to 5/5,
+and seller-voice cards across the whole run went from 21 of 25 to 0 of 25. I read all 25
+cards myself, not just the regex result, and none of them claims a shop or a listing.
+Nothing else moved: criteria 1, 2, 3, 5 and the original 4 stayed 5/5.
+
+**It also made something worse, and none of my criteria would catch it.** The cards
+now all open the same way. First words before: *Found* ×9, *Scored* ×7, *Obsessed* ×5,
+*Just* ×3. After: ***Scored* ×22** of 25. Most of them are "Scored this … on <platform>
+for just $<price>, and I am obsessed!" Telling the model "a shopper who just found
+this" handed it one obvious opening, and at temperature 0.9 it takes it almost every time.
+The cards are correct now, but they read like a template. (Word choice was already
+narrow before the fix: "obsessed" is in 24 of 25 cards in *both* runs.)
 
 
 
