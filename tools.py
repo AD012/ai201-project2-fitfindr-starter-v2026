@@ -20,7 +20,9 @@ That last line is what your loop branches on. "Returns a list" earns nothing —
 the description has to say what is *in* the list.
 """
 
-import config  # noqa: F401 — you'll use this in search_listings
+import re
+
+import config
 from generate import generate
 from utils.data_loader import load_listings
 
@@ -38,7 +40,7 @@ def _keywords(text: str) -> set[str]:
 
 def _size_tokens(size: str) -> set[str]:
     cleaned = re.sub(r"\([^)]*\)", " ", size or "") # drop parentheticals
-    parts = [p.strip().upper for p in cleaned.split("/")]
+    parts = [p.strip().upper() for p in cleaned.split("/")]
     return {p for p in parts if p}
 
 def _size_matches(wanted: str, listing_size: str) -> bool:
@@ -48,6 +50,18 @@ def _size_matches(wanted: str, listing_size: str) -> bool:
     if any(token.startswith("ONE SIZE") for token in listing_tokens):
         return True
     return bool(_size_tokens(wanted) & listing_tokens)
+
+def _listing_keywords(listing: dict) -> set[str]:
+    """Every word a description can match against, across the searchable fields."""
+    text = " ".join([
+        listing.get("title") or "",
+        listing.get("description") or "",
+        listing.get("category") or "",
+        " ".join(listing.get("style_tags") or []),
+        " ".join(listing.get("colors") or []),
+        listing.get("brand") or "",  # brand is None for most listings
+    ])
+    return _keywords(text)
 
 def search_listings(
     description: str,
@@ -100,11 +114,46 @@ def search_listings(
     Test it from a terminal before you move on:
         python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
     """
-    # TODO: replace this with your implementation
-    return []
+    wanted = _keywords(description)
+    if not wanted:
+        return []
+
+    scored = []
+    for listing in load_listings():
+        if max_price is not None and listing["price"] > max_price:
+            continue
+        if not _size_matches(size, listing.get("size")):
+            continue
+        score = len(wanted & _listing_keywords(listing))
+        if score > 0:
+            scored.append((score, listing))
+
+    # sorted() is stable, so ties keep the file's order
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [listing for _, listing in scored[: config.SEARCH_RESULT_LIMIT]]
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
+
+_STYLIST = (
+    "You are a friendly stylist who specialises in thrifted and vintage clothing. "
+    "Give concrete, wearable outfit ideas. No preamble."
+)
+
+EMPTY_OUTFIT_MESSAGE = "Can't make a fit card: no outfit suggestion was provided."
+
+def _describe_item(item: dict) -> str:
+    """One readable block of the listing fields the model needs. Brand may be None."""
+    lines = [
+        f"Title: {item.get('title')}",
+        f"Category: {item.get('category')}",
+        f"Colours: {', '.join(item.get('colors') or [])}",
+        f"Style: {', '.join(item.get('style_tags') or [])}",
+        f"Size: {item.get('size')}",
+    ]
+    if item.get("brand"):
+        lines.append(f"Brand: {item['brand']}")
+    return "\n".join(lines)
 
 def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     """
@@ -134,8 +183,36 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    item_text = _describe_item(new_item)
+    items = (wardrobe or {}).get("items") or []
+
+    if not items:
+        prompt = (
+            f"Someone is thinking of buying this secondhand item:\n{item_text}\n\n"
+            "They haven't told you anything about their wardrobe. Suggest one or "
+            "two outfits built around this item, describing the kinds of pieces "
+            "to pair it with (cut, colour, shoes, layers). Keep it under 120 words."
+        )
+    else:
+        owned = "\n".join(
+            f"- {w.get('name')} ({w.get('category')}; "
+            f"colours: {', '.join(w.get('colors') or [])}"
+            f"{'; ' + w['notes'] if w.get('notes') else ''})"
+            for w in items
+        )
+        prompt = (
+            f"Someone is thinking of buying this secondhand item:\n{item_text}\n\n"
+            f"Here is what they already own:\n{owned}\n\n"
+            "Suggest one or two outfits built around the new item. Each outfit "
+            "must name the specific pieces they own, using the names exactly as "
+            "listed above. Keep it under 120 words."
+        )
+
+    response = generate(prompt, system=_STYLIST)
+    if not response.strip():
+        # Spec says this never returns "" — fall back rather than break the loop.
+        return f"Style the {new_item.get('title', 'item')} with simple basics and let it be the focus."
+    return response
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
@@ -174,5 +251,20 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    if not outfit or not outfit.strip():
+        return EMPTY_OUTFIT_MESSAGE
+
+    price = new_item.get("price")
+    price_text = f"${price:g}" if isinstance(price, (int, float)) else "an unlisted price"
+    prompt = (
+        f"Write a caption for a social media post about this thrift find.\n\n"
+        f"Item: {new_item.get('title')}\n"
+        f"Price: {price_text}\n"
+        f"Platform: {new_item.get('platform')}\n"
+        f"How it's being styled: {outfit}\n\n"
+        f"Rules: 2 to 4 sentences. Mention the item, the price written exactly as "
+        f"{price_text}, and the platform once each. Be specific about the vibe. "
+        f"Write like a real person posting, not a product description. "
+        f"Return only the caption."
+    )
+    return generate(prompt)
