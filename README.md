@@ -210,6 +210,18 @@ Can't make a fit card: no outfit suggestion was provided.
 - *What came back:* `'platform sneakers size 8'` returned nothing. The parser handed the tool `"8"`, my size rule doesn't match `"8"` to `"US 8"`, and the empty-search message contradicted itself: "drop the size — matches come in US 7, US 8, US 9".
 - *What I changed:* I kept the tool's size rule as specified and fixed it in the parser instead — a bare number after "size" becomes `"US 8"`, because that's how the data writes shoe sizes. Re-ran it: `size 8`, `size us8` and `size 8.5` each now find their match.
 
+**Moment 3 (unit 4)**
+
+- *What I asked for:* After the before run came back 5/5 on every criterion, I asked Claude to argue the opposite verdict on each one, and to read all 25 fit cards rather than trust my scorer.
+- *What came back:* It said the arguments against criteria 2, 3 and 5 were weak, since those paths are deterministic. Its argument against criterion 4 was strong: 21 of the 25 cards were written as a *seller* ("It's up on my Depop for $18", "Grab it before I change my mind"), so the criterion was passing cards the user couldn't post. It also pointed out that `suggest_outfit`'s prompt says "someone is thinking of buying" and `create_fit_card`'s doesn't.
+- *What I changed:* I revised criterion 4 in `criteria.md` (original kept), added `SELLER_VOICE` to `score_run.py`, and rescored the *same* before run: 1/5. My fix was one sentence in the `create_fit_card` prompt saying who's posting. I deliberately didn't put the banned phrases into the prompt, because that would train the model to my regex instead of fixing who it thought was posting.
+
+**Moment 4 (unit 4)**
+
+- *What I asked for:* After the fix scored 5/5, I asked Claude whether anything *else* changed between the before and after cards.
+- *What came back:* It counted opening words: *Scored* went from 7 of 25 to 22 of 25. The fix had made the cards formulaic, and none of my criteria could see it.
+- *What I changed:* Nothing in code. One change per re-run is the rule. I reported it under *The Improvement* and wrote the criterion I'd add next under *What's Still Broken*.
+
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
      Don't fill these in during unit 3.
@@ -512,10 +524,28 @@ at a file that doesn't exist), since that's a new way for step 2 to fail now:
 Couldn't reach the listings search (the MCP server in mcp_server.py didn't answer), so nothing was searched. Run `python mcp_client.py` to check the server starts, then ask again.
 ```
 
-**On the MCP move:** <!-- what changed in your code, and whether anything
-behaved differently afterwards. If the rewire didn't work, say exactly where it
-broke — the error text and the last thing that worked. That earns the point in
-full. -->
+**On the MCP move:** `search_listings` is registered in `mcp_server.py` with typed inputs
+(`description: str`, `size: str | None`, `max_price: float | None`, the same as my Tool
+Inventory) and a description written for an agent that can't see my code: units
+(US dollars, inclusive), the size rule, every returned field, and the empty case
+(`[]`, never null). In `agent.py`, `search_listings` is now a thin wrapper around
+`mcp_client.call_tool("search_listings", …)` instead of an import from `tools.py`. So
+the loop's search *and* the re-searches in `no_results_message` both go over MCP.
+`python mcp_client.py` lists the tool with `description: string`, `size: string (optional)`,
+`max_price: number (optional)`.
+
+*Did anything behave differently?* The return value didn't. Over MCP,
+`vintage graphic tee` under $30 returned the same 10 dicts as the direct call
+(`==` is `True`), and the impossible query still came back as `[]`. That's not
+`None` and not a string, so the branch kept working without a change. Two things
+did change. **Speed:** every `call_tool` starts a fresh server process, so one
+search went from **0.4 ms to ~330 ms** (average of 5). An empty search that
+re-searches twice in `no_results_message` now costs about a second. **A new way
+to fail:** step 2 can now fail because the server won't start, so I added the
+`MCPError` handler (message above). The first time I ran it, a stray space before
+the opening `"""` of `mcp_server.py` caused an `IndentationError`. The client only
+reported `Couldn't reach the server: unhandled errors in a TaskGroup (1 sub-exception)`.
+The real error was only visible in the server's own stderr, a few lines above it.
 
 
 
@@ -601,9 +631,44 @@ narrow before the fix: "obsessed" is in 24 of 25 cards in *both* runs.)
 
 ## What's Still Broken
 
-<!-- For each criterion still missed: what you'd do, and why you stopped where
-     you did. "I ran out of time" is fine if it's true. Pretending nothing is
-     left is not. -->
+No criterion is still missed after the improvement. That says more about my criteria
+than about the agent, and the run turned up four things that are still wrong:
+
+1. **Fit cards all open with "Scored this…" (22 of 25), which my fix caused.** None of
+   my criteria checks variety, so the after run is 5/5 on a card that's become a
+   template. *What I'd do:* first add a criterion I can score: "for 5 different
+   items, no two fit cards share their first three words, in 4 of 5 runs". The before
+   run would roughly pass it and the after run would clearly fail it. Then change the
+   prompt to ask for a hook that's specific to the item rather than to the act of
+   buying it. *Why I stopped:* Milestone 5 is one change, measured. A second prompt
+   edit in the same run would make it impossible to say which edit did what.
+
+2. **Criterion 1 never tested what its reason was about.** The reason says some
+   *phrasings* of a matchable query will miss. My scenario runs one fixed phrasing five
+   times, so 5/5 was guaranteed once the tool worked. *What I'd do:* rotate five
+   phrasings of things the data has (`size 8` / `size US 8` / `size 8.5`,
+   "tee" / "t-shirt", "jeans" / "denim") at the same 4/5 target. I checked one by
+   hand: `vintage t-shirt` doesn't come back empty, it comes back *wrong*. "t" is
+   dropped as too short and "shirt" matches, so the first result is an Oversized
+   Flannel Shirt. Criterion 1 as written would pass that, so it needs a "the
+   selected item is the kind of thing asked for" check too.
+   *Why I stopped:* time. Changing the scenario would also make before and after
+   incomparable.
+
+3. **Relevance isn't measured, and it's weak.** `y2k top for less than $20` returns
+   biker shorts and canvas sneakers, because they share the word "y2k" and a single
+   keyword is enough. `corduroy pants size W29` picks Low-Rise Cargo Pants
+   because "pants" is the only word that matched. Also, "less than $20" kept a $20
+   item. That passes criterion 5 as I wrote it (≤), but "less than" is strict in
+   English. *What I'd do:* require the item's *category* word to match when the query
+   names one, and have the parser treat "less than" as strict. *Why I stopped:* no
+   criterion covers relevance, so I'd have no before number to compare against. That
+   criterion has to be written first.
+
+4. **The seller-voice check is a phrase list.** It caught every seller card I found
+   by reading, but a paraphrase like "DM me if you want it" would get through. I read
+   all 50 cards by hand to back it up. With more runs I'd add phrases from anything
+   it misses rather than trust it blind.
 
 
 
