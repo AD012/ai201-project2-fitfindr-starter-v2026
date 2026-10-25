@@ -15,14 +15,25 @@ import sys
 
 from tools import EMPTY_OUTFIT_MESSAGE
 
-TARGETS = {1: 4, 2: 5, 3: 5, 4: 4, 5: 5}  # passes needed out of 5, from criteria.md
+TARGETS = {1: 4, 2: 5, 3: 5, 4: 4, "4r": 4, 5: 5}  # passes needed out of 5, from criteria.md
 NAMES = {
     1: "A matching query completes all three tools",
     2: "An impossible query stops before the second tool",
     3: "Selected item is search_results[0] and its platform reaches the fit card",
     4: "Fit card is 2–4 sentences and contains the price with a $",
     5: "Every search result is within the stated price ceiling",
+    "4r": "Fit card is 2–4 sentences, has the $ price, and is in the shopper's voice",
 }
+
+# Criterion 4, revised in unit 4: phrases that only make sense if the poster is
+# selling the item — claiming the listing as theirs, or telling readers to buy.
+SELLER_VOICE = re.compile(
+    r"\bmy (depop|poshmark|thredup|shop|closet)\b"
+    r"|\b(listed|listing|live on|up on|in the shop|just dropped)\b"
+    r"|\b(grab|snag) (it|this|them)\b|head over|check out my|run, don.t walk"
+    r"|before (i|someone else) |keep (it|them) (for myself|both)",
+    re.I,
+)
 
 
 def sentences(text: str) -> list[str]:
@@ -85,6 +96,13 @@ def check(criterion: int, record: dict) -> tuple[bool, str]:
         why = f"{item['id']}: {n} sentences, ${item['price']:g} {'found' if has_price else 'MISSING'}"
         return (2 <= n <= 4 and has_price), why
 
+    if criterion == "4r":
+        ok, why = check(4, record)
+        seller = SELLER_VOICE.search(s["fit_card"])
+        if seller:
+            return False, f"{why}; seller voice: {seller.group(0)!r}"
+        return ok, f"{why}; shopper voice"
+
     if criterion == 5:
         # The ceiling comes from what the user typed, not from the parser —
         # otherwise a parser bug would mark itself correct.
@@ -107,16 +125,22 @@ def main(path: str) -> None:
         c = row["scenario"].get("criterion")
         if not c:
             continue
-        results = [check(c, r) for r in row["tries"]]
-        passes = sum(ok for ok, _ in results)
-        verdict = "MET" if passes >= TARGETS[c] else "MISSED"
-        cells = " | ".join("PASS" if ok else "FAIL" for ok, _ in results)
-        table.append(f"| {c}. {NAMES[c]} | {TARGETS[c]} of 5 | {cells} | {verdict} ({passes}/5) |")
-        details.append(f"\nCriterion {c}:")
-        for i, ((ok, why), r) in enumerate(zip(results, row["tries"]), 1):
-            details.append(f"  try {i} {'PASS' if ok else 'FAIL'}  [{r['query']}]  {why}")
+        for crit in ([c, "4r"] if c == 4 else [c]):
+            results = [check(crit, r) for r in row["tries"]]
+            passes = sum(ok for ok, _ in results)
+            verdict = "MET" if passes >= TARGETS[crit] else "MISSED"
+            cells = " | ".join("PASS" if ok else "FAIL" for ok, _ in results)
+            label = "4 (revised)" if crit == "4r" else f"{crit}."
+            table.append(f"| {label} {NAMES[crit]} | {TARGETS[crit]} of 5 | {cells} | {verdict} ({passes}/5) |")
+            details.append(f"\nCriterion {label}:")
+            for i, ((ok, why), r) in enumerate(zip(results, row["tries"]), 1):
+                details.append(f"  try {i} {'PASS' if ok else 'FAIL'}  [{r['query']}]  {why}")
+    cards = [r["session"]["fit_card"] for row in rows for r in row["tries"]
+             if not r.get("crashed") and (r["session"] or {}).get("fit_card")]
+    seller = sum(bool(SELLER_VOICE.search(c)) for c in cards)
     print("\n".join(table))
     print("\n".join(details))
+    print(f"\nAcross every scenario: {seller} of {len(cards)} fit cards in seller voice.")
 
 
 if __name__ == "__main__":

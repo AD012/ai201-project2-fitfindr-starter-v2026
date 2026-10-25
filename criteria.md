@@ -102,6 +102,22 @@ write "24.0", or drop the price for a vibe-only caption. One slip in five is
 the model being a model; two would mean my prompt isn't clear enough. I'm not
 requiring identical wording because varied wording is the point of the card.
 
+> **Revised in unit 4:** For 5 different matching queries, each fit card is 2 to
+> 4 sentences long, contains the selected item's price written with a dollar
+> sign, **and is written as the shopper who found the item** — it never presents
+> the item as the poster's own listing ("up on my Depop", "I've got it listed")
+> or tells readers to go buy it ("grab it", "head over", "before I change my
+> mind") — in at least 4 of 5 tries. Seller voice is checked by a fixed phrase
+> list in `score_run.py::SELLER_VOICE`.
+>
+> **Why revised:** the original measured the wrong thing. It came out 5 of 5 in
+> the before run while 21 of the 25 fit cards in that run were written as a
+> seller advertising their own listing — to a user who is deciding whether to
+> *buy* the item. Length and price are format; a card the user can't post
+> without lying about owning a Depop shop isn't a working fit card, and the
+> original criterion couldn't see that. The target stays 4 of 5 for the same
+> reason as before.
+
 
 ---
 

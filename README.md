@@ -252,6 +252,13 @@ down as a check rather than eyeballing 25 runs.
 | 4. Fit card is 2–4 sentences and contains the price with a $ | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 | 5. Every search result is within the stated price ceiling | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
+Criterion 4 was revised in Milestone 4 (see [criteria.md](criteria.md) and *Verdicts and
+Diagnoses* below). Scored against the **same before run**, no re-run:
+
+| Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
+|---|---|---|---|---|---|---|---|
+| 4 (revised). Fit card is 2–4 sentences, has the $ price, and is in the shopper's voice | 4 of 5 | FAIL | FAIL | FAIL | FAIL | PASS | MISSED (1/5) |
+
 **Real output, one try per criterion.** All produced by `agent.py::run_agent`, run by
 `run_eval.py::run_once`; the tool named in each block is the one that wrote the text.
 
@@ -342,13 +349,56 @@ search_results:
 
 | # | Criterion | Target | Verdict | How I decided |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| 4 |  |  |  |  |
-| 5 |  |  |  |  |
+| 1 | A matching query completes all three tools | 4 of 5 | **MET** (5/5) | All five tries ended with no `error`, an outfit, and a real fit card. 5 ≥ 4. |
+| 2 | An impossible query stops before the second tool | 5 of 5 | **MET** (5/5) | All five stopped at step 2 with `outfit_suggestion` and `fit_card` still `None`, and the message says "Try broader words…". |
+| 3 | Selected item is search_results[0], and its platform reaches the fit card | 5 of 5 | **MET** (5/5) | `lst_004 == lst_004` every time, and every card says "Poshmark". |
+| 4 | Fit card is 2–4 sentences with the $ price | 4 of 5 | **MET** (5/5) | All five cards were 3 sentences and had the exact `$` price. |
+| 4 (revised) | …and written as the shopper, not a seller | 4 of 5 | **MISSED** (1/5) | Same five cards. Four claim the item is the poster's own listing or tell readers to buy it. Only the denim jacket card ("Just scored this… on Poshmark for only $42") reads as a buyer. 1 < 4. |
+| 5 | Every search result is within the stated price ceiling | 5 of 5 | **MET** (5/5) | No result over the ceiling in any of the five queries; the two queries with an item at exactly the ceiling ($30, $20) kept it, which matches the inclusive rule. |
+
+**I missed nothing as originally written — and the targets were too easy to miss.**
+Criteria 2, 3 and 5 don't touch the model at all: regex, a keyword search
+and a dict passed along the session. Once they work, they're 5/5 forever. That's
+why I picked 5/5 for them. It also means five tries can only find a regression,
+not variance. Criterion 1's reason says *phrasings* might miss, but my scenario
+runs one fixed phrasing five times, so it never tested the risk it was written
+about. Criterion 1 is the one I'd tighten: run five *different* phrasings of things
+the data does have (`size 8` vs `size US 8` vs `8.5`, "tee" vs "t-shirt") and keep 4/5.
+
+**Arguing the opposite verdict** (I asked Claude to argue against each MET). The only
+argument that held up was against criterion 4. It "passed" 5/5, but I wouldn't post
+four of those five cards, and the person using FitFindr couldn't either. That's a
+criterion measuring the wrong thing, not a miss, so I revised it in
+[criteria.md](criteria.md) with the original left in place. The revised version
+misses badly.
 
 **Diagnoses**
+
+**Criterion 4 (revised) — MISSED 1/5. Place: the model's output, caused by the prompt in `tools.py::create_fit_card`.**
+
+The tool worked. It returned 2–4 sentences with the price every time. The loop
+and session worked too: criterion 3 shows the right item reached the tool. What
+broke is *who the model thinks is talking*. The `create_fit_card` prompt hands
+the model a title, a price and a platform, and asks for "a caption for a social
+media post about this thrift find… mention the item, the price…, and the
+platform once each… write like a real person posting". It never says who's
+posting, or that they're a shopper who just found it. Title + price + platform
+is exactly the shape of a resale listing, and the real posts that name a price
+and a platform are mostly sellers promoting their own shop. So the model fills
+in a seller: "It's up on my Depop for $18", "I've got it listed on Poshmark",
+"Grab it before I change my mind and keep it for myself".
+
+**It's one problem, not four.** Across *every* card in the before run, not just
+criterion 4's, 21 of 25 are in seller voice. It happens on 5 of the 7 different
+items (the two that came out as a buyer each appeared only once), with the full
+wardrobe and the empty one, and the outfit text that goes in is written
+to the buyer ("your baggy straight-leg jeans"). So the seller framing isn't
+coming from the item or from `suggest_outfit`. It comes from the one prompt
+that drops the context `suggest_outfit`'s prompt states outright: *"Someone is
+thinking of buying this secondhand item"*. The four buyer-voice cards all open
+on a buying verb tied to the platform ("Just scored… on Poshmark", "Snagged this
+beauty on depop", "Scored… on thredUp"). When the model happens to start there,
+it stays a buyer.
 
 
 
