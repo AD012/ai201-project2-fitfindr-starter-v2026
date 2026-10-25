@@ -17,7 +17,7 @@ import re
 
 import config  # noqa: F401 — MAX_ITERATIONS is read through trace.check_iterations
 import trace
-from mcp_client import call_tool
+from mcp_client import MCPError, call_tool
 from tools import suggest_outfit, create_fit_card
 from generate import ModelUnavailable
 
@@ -127,39 +127,90 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         count += 1
         trace.check_iterations(count)
 
-        if step == "parse":
-            session["parsed"] = parse_query(session["query"])
-            step = "search"
-
-        elif step == "search":
-            p = session["parsed"]
-            session["search_results"] = search_listings(
-                p["description"], size=p["size"], max_price=p["max_price"]
+        try:
+            step = _run_step(step, session)
+        except MCPError as exc:
+            session["error"] = (
+                "Couldn't reach the listings search (the MCP server in mcp_server.py "
+                "didn't answer), so nothing was searched. Run `python mcp_client.py` "
+                f"to check the server starts, then ask again.\nDetails: {exc}"
             )
-            # THE BRANCH: nothing found → say what to change and stop here.
-            if not session["search_results"]:
-                session["error"] = no_results_message(session["parsed"])
-                step = "done"
-            else:
-                step = "select"
-
-        elif step == "select":
-            session["selected_item"] = session["search_results"][0]
-            step = "suggest"
-
-        elif step == "suggest":
-            session["outfit_suggestion"] = suggest_outfit(
-                session["selected_item"], session["wardrobe"]
-            )
-            step = "fit_card"
-
-        elif step == "fit_card":
-            session["fit_card"] = create_fit_card(
-                session["outfit_suggestion"], session["selected_item"]
-            )
+            trace.step(_STEP_TOOL.get(step, step), note=f"stopped: MCP call failed — {exc}")
+            step = "done"
+        except ModelUnavailable as exc:
+            session["error"] = model_unavailable_message(step, session, exc)
+            trace.step(_STEP_TOOL.get(step, step), note=f"stopped: model unavailable — {exc}")
             step = "done"
 
     return session
+
+
+_STEP_TOOL = {"search": "search_listings (via MCP)", "suggest": "suggest_outfit",
+              "fit_card": "create_fit_card"}
+
+
+def _run_step(step: str, session: dict) -> str:
+    """Run one step, record it in the session and the trace, and return the next step."""
+    if step == "parse":
+        session["parsed"] = parse_query(session["query"])
+        trace.step("parse_query", inputs=repr(session["query"]), returned=str(session["parsed"]))
+        return "search"
+
+    if step == "search":
+        p = session["parsed"]
+        session["search_results"] = search_listings(
+            p["description"], size=p["size"], max_price=p["max_price"]
+        )
+        # THE BRANCH: nothing found → say what to change and stop here.
+        if not session["search_results"]:
+            session["error"] = no_results_message(session["parsed"])
+            trace.step("search_listings (via MCP)", inputs=str(p), returned=session["search_results"],
+                       note="branch: empty — stopping before suggest_outfit")
+            return "done"
+        trace.step("search_listings (via MCP)", inputs=str(p), returned=session["search_results"],
+                   note="branch: results — continuing")
+        return "select"
+
+    if step == "select":
+        session["selected_item"] = session["search_results"][0]
+        trace.step("select_item", inputs="search_results[0]", returned=session["selected_item"])
+        return "suggest"
+
+    if step == "suggest":
+        session["outfit_suggestion"] = suggest_outfit(
+            session["selected_item"], session["wardrobe"]
+        )
+        n_owned = len((session["wardrobe"] or {}).get("items") or [])
+        trace.step("suggest_outfit",
+                   inputs=f"new_item={session['selected_item']['id']}, wardrobe={n_owned} items",
+                   returned=session["outfit_suggestion"])
+        return "fit_card"
+
+    if step == "fit_card":
+        session["fit_card"] = create_fit_card(
+            session["outfit_suggestion"], session["selected_item"]
+        )
+        trace.step("create_fit_card",
+                   inputs=f"outfit=<{len(session['outfit_suggestion'])} chars>, "
+                          f"new_item={session['selected_item']['id']}",
+                   returned=session["fit_card"])
+        return "done"
+
+    raise ValueError(f"run_agent reached an unknown step: {step!r}")
+
+
+def model_unavailable_message(step: str, session: dict, exc: Exception) -> str:
+    """Say which step needed the model, keep what was already found, and say what to do."""
+    item = session.get("selected_item") or {}
+    found = (
+        f"Found {item.get('title')} (${item.get('price'):g} on {item.get('platform')}), "
+        if item else ""
+    )
+    needed = "suggest an outfit" if step == "suggest" else "write the fit card"
+    return (
+        f"{found}but couldn't reach the AI model to {needed}. {exc} "
+        f"The search itself still works — once the key is fixed, ask again."
+    )
 
 
 # ── query parsing (regex) ─────────────────────────────────────────────────────

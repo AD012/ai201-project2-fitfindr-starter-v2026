@@ -289,16 +289,100 @@ that produced it:
      the same length, your branch isn't working — and this is the fastest way
      anyone will ever find that out. -->
 
+Trace calls live in `agent.py::_run_step` — one `trace.step()` per step,
+called by `agent.py::run_agent`. Step 2 is the MCP call.
+
 **Happy path**
 
 ```
-
+$ python app.py ask 'vintage graphic tee under $30' --trace
+[1] parse_query
+      in:  'vintage graphic tee under $30'
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+      →    branch: results — continuing
+[3] select_item
+      in:  search_results[0]
+      out: Y2K Baby Tee — Butterfly Print ($18.0, depop)
+[4] suggest_outfit
+      in:  new_item=lst_002, wardrobe=10 items
+      out: **Outfit 1: Casual Y2K Contrast** Pair the Y2K Baby Tee — Butterfly Print with your baggy straight-leg jeans, …
+[5] create_fit_card
+      in:  outfit=<604 chars>, new_item=lst_002
+      out: Obsessed with this Y2K butterfly baby tee that just dropped in the shop for $18 on Depop! I’ve been living for…
 ```
 
-**Empty search**
+**Empty search** — two steps, not five. The branch stops it.
 
 ```
+$ python app.py ask 'designer ballgown size XXS under $5' --trace
+[1] parse_query
+      in:  'designer ballgown size XXS under $5'
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty — stopping before suggest_outfit
 
+  No listing mentions 'designer ballgown', even with size and price ignored. Try broader words — a category like 'dress', 'jacket' or 'tee', or a style like 'vintage' or 'y2k'.
+```
+
+### The three failures, triggered on purpose
+
+**1. Empty search** — handled already in unit 3 by `agent.py::no_results_message`.
+Two different messages depending on what's in the way:
+
+```
+$ python app.py ask 'designer ballgown size XXS under $5'
+  No listing mentions 'designer ballgown', even with size and price ignored. Try broader words — a category like 'dress', 'jacket' or 'tee', or a style like 'vintage' or 'y2k'.
+
+$ python app.py ask 'platform sneakers size 7 under $10'
+  Nothing matched 'platform sneakers' in size US 7 under $10. To find something, raise your price limit — the cheapest match is $55.
+```
+
+**2. Empty wardrobe** — `tools.py::suggest_outfit` already had an empty-wardrobe
+prompt, so this returned general advice first time, no change needed:
+
+```
+$ python app.py ask 'denim jacket under $50' --empty-wardrobe
+(running with an empty wardrobe)
+
+  Found:    Denim Jacket — Light Wash, Cropped — $42.0 on poshmark
+
+  Outfit:   **Outfit 1: Retro Casual**
+Layer the cropped Wrangler jacket over a fitted, ribbed black turtleneck. Pair with high-waisted, wide-leg beige corduroy trousers to balance the proportions. Finish with well-worn canvas high-top sneakers and a simple leather shoulder bag for an effortless, texture-rich look. …
+```
+
+**3. Model unavailable** (one character of the key changed, cache off). *Before
+the handler* the agent itself didn't catch it — `app.py`'s catch-all printed the
+exception class and exited with status 1, throwing away the listing the search
+had already found:
+
+```
+$ python app.py ask 'corduroy pants size W29'
+ModelUnavailable: The model rejected your API key. Check GEMINI_API_KEY in your .env file, or create a fresh key at aistudio.google.com.
+```
+
+*After* — `agent.py::run_agent` catches `ModelUnavailable`, and
+`agent.py::model_unavailable_message` says which step needed the model, keeps
+what was found, and says what to do:
+
+```
+$ python app.py ask 'corduroy pants size W29' --trace
+…
+[4] suggest_outfit
+      →    stopped: model unavailable — The model rejected your API key. Check GEMINI_API_KEY in your .env file, or create a fresh key at aistudio.google.com.
+
+  Found Low-Rise Cargo Pants — Khaki ($27 on poshmark), but couldn't reach the AI model to suggest an outfit. The model rejected your API key. Check GEMINI_API_KEY in your .env file, or create a fresh key at aistudio.google.com. The search itself still works — once the key is fixed, ask again.
+```
+
+I also added a handler for the MCP server not answering (pointed `mcp_client.SERVER`
+at a file that doesn't exist), since that's a new way for step 2 to fail now:
+
+```
+Couldn't reach the listings search (the MCP server in mcp_server.py didn't answer), so nothing was searched. Run `python mcp_client.py` to check the server starts, then ask again.
 ```
 
 **On the MCP move:** <!-- what changed in your code, and whether anything
